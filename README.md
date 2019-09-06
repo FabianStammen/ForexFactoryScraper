@@ -1,4 +1,4 @@
-# HistDataScraper
+# ForexFactoryScraper
 A simple web scraper that downloads forex calendar data from ForexFactory.
 
 The download is managed in packets of weeks, stating on a sunday.\
