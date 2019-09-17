@@ -21,65 +21,63 @@ def set_logger():
 
 
 def get_timezone():
-    r = requests.get('https://www.forexfactory.com/timezone.php')
-    data = r.text
+    site = requests.get('https://www.forexfactory.com/timezone.php')
+    data = site.text
     soup = BeautifulSoup(data, "lxml")
     tzinfos = soup.find_all('option', selected="selected")
     if tzinfos[0]['value'] == "-5" and tzinfos[1]['value'] == "1":
         return gettz("America/New_York")
-    else:
-        raise ValueError("The default timezone configuration of forex factory has changed, "
-                         "please update.")
+    raise ValueError("The default timezone configuration of forex factory has changed, "
+                     "please update.")
 
 
 def scrap():
+    # TODO Refactor to be not monolithic
     timezone = get_timezone()
-    start_dt = get_start_dt()
+    start_date = get_start_dt()
     base_url = 'https://www.forexfactory.com/'
     fields = ['date', 'time', 'currency', 'impact', 'event', 'actual', 'forecast', 'previous']
     while True:
         try:
-            date_url = dt_to_url(start_dt)
+            date_url = dt_to_url(start_date)
         except ValueError:
             logging.info('Successfully retrieved data')
             return
-        logging.info('Scraping data for link: {}'.format(date_url))
-        r = requests.get(base_url + date_url)
-        data = r.text
+        logging.info('Scraping data for link: %s', date_url)
+        site = requests.get(base_url + date_url)
+        data = site.text
         soup = BeautifulSoup(data, "lxml")
         table = soup.find("table", class_="calendar__table")
-        trs = table.select("tr.calendar__row.calendar_row")
-        # some rows do not have a date (cells merged)
-        dt = None
-        for tr in trs:
-            # fields may mess up sometimes, in that case we append to errors.csv
+        table_rows = table.select("tr.calendar__row.calendar_row")
+        date = None
+        for table_row in table_rows:
             try:
                 for field in fields:
-                    data = tr.select("td.calendar__cell.calendar__{}.{}".format(field, field))[0]
+                    data = table_row.select("td.calendar__cell.calendar__{0}.{0}".format(field))[0]
                     if field == 'date' and data.text.strip() != '':
-                        d = data.text.strip().replace('\n', '')
-                        if dt is None:
-                            y = str(start_dt.year)
+                        day = data.text.strip().replace('\n', '')
+                        if date is None:
+                            year = str(start_date.year)
                         else:
-                            y = str(get_next_dt(dt, mode='day').year)
-                        dt = datetime.strptime(','.join([y, d]), '%Y,%a%b %d') \
+                            year = str(get_next_dt(date, mode='day').year)
+                        date = datetime.strptime(','.join([year, day]), '%Y,%a%b %d') \
                             .replace(tzinfo=timezone)
                     elif field == 'time' and data.text.strip() != '':
-                        t = data.text.strip()
-                        if 'Day' in t:
-                            h = 23
-                            m = 59
-                            s = 59
-                        elif 'Data' in t:
-                            h = 0
-                            m = 0
-                            s = 1
+                        time = data.text.strip()
+                        if 'Day' in time:
+                            hours = 23
+                            minutes = 59
+                            seconds = 59
+                        elif 'Data' in time:
+                            hours = 0
+                            minutes = 0
+                            seconds = 1
                         else:
-                            i = 1 if len(t) == 7 else 0
-                            h = int(t[:1 + i]) % 12 + (12 * (t[4 + i:] == 'pm'))
-                            m = int(t[2 + i:4 + i])
-                            s = 0
-                        dt = dt.replace(hour=h, minute=m, second=s)
+                            i = 1 if len(time) == 7 else 0
+                            hours = int(time[:1 + i]) % 12 + (12 * (time[4 + i:] == 'pm'))
+                            minutes = int(time[2 + i:4 + i])
+                            seconds = 0
+                        date = date.replace(hour=hours, minute=minutes, second=seconds)
                     elif field == 'currency':
                         currency = data.text.strip()
                     elif field == 'impact':
@@ -92,22 +90,24 @@ def scrap():
                         forecast = data.text.strip()
                     elif field == 'previous':
                         previous = data.text.strip()
-                if dt.second == 1:
+                if date.second == 1:
                     raise ValueError
-                if dt <= start_dt:
+                if date <= start_date:
                     continue
-                if dt >= datetime.now(tz=dt.tzinfo):
+                if date >= datetime.now(tz=date.tzinfo):
                     break
-                with open('forex_factory_catalog.csv', mode='a', newline='') as f:
-                    writer = csv.writer(f, delimiter=',')
-                    writer.writerow([str(dt), currency, impact, event, actual, forecast, previous])
+                with open('forex_factory_catalog.csv', mode='a', newline='') as file:
+                    writer = csv.writer(file, delimiter=',')
+                    writer.writerow(
+                        [str(date), currency, impact, event, actual, forecast, previous]
+                    )
             except TypeError:
-                with open('errors.csv', mode='a') as f:
-                    f.write(str(dt) + ' (No Event Found)\n')
+                with open('errors.csv', mode='a') as file:
+                    file.write(str(date) + ' (No Event Found)\n')
             except ValueError:
-                with open('errors.csv', mode='a') as f:
-                    f.write(str(dt.replace(second=0)) + ' (Data For Past Month)\n')
-        start_dt = get_next_dt(start_dt, mode=get_mode(date_url))
+                with open('errors.csv', mode='a') as file:
+                    file.write(str(date.replace(second=0)) + ' (Data For Past Month)\n')
+        start_date = get_next_dt(start_date, mode=get_mode(date_url))
 
 
 def get_start_dt():
@@ -134,40 +134,36 @@ def get_start_dt():
     return datetime(year=2007, month=1, day=1, hour=0, minute=0, tzinfo=get_timezone())
 
 
-def get_next_dt(dt, mode):
+def get_next_dt(date, mode):
     if mode == 'month':
-        (year, month) = divmod(dt.month, 12)
-        test = dt.replace(year=dt.year + year, month=month + 1, day=1, hour=0, minute=0)
-        return dt.replace(year=dt.year + year, month=month + 1, day=1, hour=0, minute=0)
-    elif mode == 'week':
-        return dt.replace(hour=0, minute=0) + timedelta(days=7)
-    elif mode == 'day':
-        return dt.replace(hour=0, minute=0) + timedelta(days=1)
-    else:
-        raise ValueError('{} is not a proper mode; please use month, week, or day.'.format(mode))
+        (year, month) = divmod(date.month, 12)
+        return date.replace(year=date.year + year, month=month + 1, day=1, hour=0, minute=0)
+    if mode == 'week':
+        return date.replace(hour=0, minute=0) + timedelta(days=7)
+    if mode == 'day':
+        return date.replace(hour=0, minute=0) + timedelta(days=1)
+    raise ValueError('{} is not a proper mode; please use month, week, or day.'.format(mode))
 
 
-def dt_to_url(dt):
-    if dt_is_start_of_month(dt) and dt_is_complete(dt, mode='month'):
-        return 'calendar.php?month={}'.format(dt_to_str(dt, mode='month'))
-    elif dt_is_start_of_week(dt) and dt_is_complete(dt, mode='week'):
-        for weekday in [dt + timedelta(days=x) for x in range(7)]:
-            if dt_is_start_of_month(weekday) and dt_is_complete(dt, mode='month'):
-                return 'calendar.php?day={}'.format(dt_to_str(dt, mode='day'))
-        return 'calendar.php?week={}'.format(dt_to_str(dt, mode='week'))
-    elif dt_is_complete(dt, mode='day') or dt_is_today(dt):
-        return 'calendar.php?day={}'.format(dt_to_str(dt, mode='day'))
-    else:
-        raise ValueError('{} is not completed yet.'.format(dt_to_str(dt, mode='day')))
+def dt_to_url(date):
+    if dt_is_start_of_month(date) and dt_is_complete(date, mode='month'):
+        return 'calendar.php?month={}'.format(dt_to_str(date, mode='month'))
+    if dt_is_start_of_week(date) and dt_is_complete(date, mode='week'):
+        for weekday in [date + timedelta(days=x) for x in range(7)]:
+            if dt_is_start_of_month(weekday) and dt_is_complete(date, mode='month'):
+                return 'calendar.php?day={}'.format(dt_to_str(date, mode='day'))
+        return 'calendar.php?week={}'.format(dt_to_str(date, mode='week'))
+    if dt_is_complete(date, mode='day') or dt_is_today(date):
+        return 'calendar.php?day={}'.format(dt_to_str(date, mode='day'))
+    raise ValueError('{} is not completed yet.'.format(dt_to_str(date, mode='day')))
 
 
-def dt_to_str(dt, mode):
+def dt_to_str(date, mode):
     if mode == 'month':
-        return dt.strftime('%b.%Y').lower()
-    elif mode == 'week' or mode == 'day':
-        return '{d:%b}{d.day}.{d:%Y}'.format(d=dt).lower()
-    else:
-        raise ValueError('{} is not a proper mode; please use month, week, or day.'.format(mode))
+        return date.strftime('%b.%Y').lower()
+    if mode in ('week', 'day'):
+        return '{d:%b}{d.day}.{d:%Y}'.format(d=date).lower()
+    raise ValueError('{} is not a proper mode; please use month, week, or day.'.format(mode))
 
 
 def get_mode(url):
@@ -175,21 +171,21 @@ def get_mode(url):
     return reg.search(url).group()
 
 
-def dt_is_complete(dt, mode):
-    return get_next_dt(dt, mode) <= datetime.now(tz=dt.tzinfo)
+def dt_is_complete(date, mode):
+    return get_next_dt(date, mode) <= datetime.now(tz=date.tzinfo)
 
 
-def dt_is_start_of_week(dt):
-    return dt.isoweekday() % 7 == 0
+def dt_is_start_of_week(date):
+    return date.isoweekday() % 7 == 0
 
 
-def dt_is_start_of_month(dt):
-    return dt.day == 1
+def dt_is_start_of_month(date):
+    return date.day == 1
 
 
-def dt_is_today(dt):
+def dt_is_today(date):
     today = datetime.now()
-    return today.year == dt.year and today.month == dt.month and today.day == dt.day
+    return today.year == date.year and today.month == date.month and today.day == date.day
 
 
 if __name__ == '__main__':
