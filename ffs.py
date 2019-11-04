@@ -24,8 +24,8 @@ def get_timezone():
     site = requests.get('https://www.forexfactory.com/timezone.php')
     data = site.text
     soup = BeautifulSoup(data, "lxml")
-    tzinfos = soup.find_all('option', selected="selected")
-    if tzinfos[0]['value'] == "-5" and tzinfos[1]['value'] == "1":
+    tz_infos = soup.find_all('option', selected="selected")
+    if tz_infos[0]['value'] == "-5":
         return gettz("America/New_York")
     raise ValueError("The default timezone configuration of forex factory has changed, "
                      "please update.")
@@ -189,5 +189,6 @@ def dt_is_today(date):
 
 
 if __name__ == '__main__':
+    # TODO Timezone changer
     set_logger()
     scrap()
