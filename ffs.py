@@ -23,19 +23,17 @@ def set_logger():
 def get_timezone():
     site = requests.get('https://www.forexfactory.com/timezone.php')
     data = site.text
-    soup = BeautifulSoup(data, "lxml")
-    tz_infos = soup.find_all('option', selected="selected")
-    if tz_infos[0]['value'] == "-5":
-        return gettz("America/New_York")
-    raise ValueError("The default timezone configuration of forex factory has changed, "
-                     "please update.")
+    soup = BeautifulSoup(data, 'lxml')
+    tz_infos = soup.find_all('option', selected='selected')
+    tz_offset = int(tz_infos[0]['value']) + int(tz_infos[1]['value'])
+    tz_name = 'UTC' + ('+' if tz_offset > 0 else '') + str(tz_offset)
+    return gettz(tz_name)
 
 
-def scrap():
+def scrap(timezone):
     # TODO Refactor to be not monolithic
-    timezone = get_timezone()
+    ff_timezone = get_timezone()
     start_date = get_start_dt()
-    base_url = 'https://www.forexfactory.com/'
     fields = ['date', 'time', 'currency', 'impact', 'event', 'actual', 'forecast', 'previous']
     while True:
         try:
@@ -44,16 +42,14 @@ def scrap():
             logging.info('Successfully retrieved data')
             return
         logging.info('Scraping data for link: %s', date_url)
-        site = requests.get(base_url + date_url)
-        data = site.text
-        soup = BeautifulSoup(data, "lxml")
-        table = soup.find("table", class_="calendar__table")
-        table_rows = table.select("tr.calendar__row.calendar_row")
+        soup = BeautifulSoup(requests.get('https://www.forexfactory.com/' + date_url).text, 'lxml')
+        table = soup.find('table', class_='calendar__table')
+        table_rows = table.select('tr.calendar__row.calendar_row')
         date = None
         for table_row in table_rows:
             try:
                 for field in fields:
-                    data = table_row.select("td.calendar__cell.calendar__{0}.{0}".format(field))[0]
+                    data = table_row.select('td.calendar__cell.calendar__{0}.{0}'.format(field))[0]
                     if field == 'date' and data.text.strip() != '':
                         day = data.text.strip().replace('\n', '')
                         if date is None:
@@ -61,27 +57,22 @@ def scrap():
                         else:
                             year = str(get_next_dt(date, mode='day').year)
                         date = datetime.strptime(','.join([year, day]), '%Y,%a%b %d') \
-                            .replace(tzinfo=timezone)
+                            .replace(tzinfo=ff_timezone)
                     elif field == 'time' and data.text.strip() != '':
                         time = data.text.strip()
                         if 'Day' in time:
-                            hours = 23
-                            minutes = 59
-                            seconds = 59
+                            date = date.replace(hour=23, minute=59, second=59)
                         elif 'Data' in time:
-                            hours = 0
-                            minutes = 0
-                            seconds = 1
+                            date = date.replace(hour=0, minute=0, second=1)
                         else:
                             i = 1 if len(time) == 7 else 0
-                            hours = int(time[:1 + i]) % 12 + (12 * (time[4 + i:] == 'pm'))
-                            minutes = int(time[2 + i:4 + i])
-                            seconds = 0
-                        date = date.replace(hour=hours, minute=minutes, second=seconds)
+                            date = date.replace(
+                                hour=int(time[:1 + i]) % 12 + (12 * (time[4 + i:] == 'pm')),
+                                minute=int(time[2 + i:4 + i]), second=0)
                     elif field == 'currency':
                         currency = data.text.strip()
                     elif field == 'impact':
-                        impact = data.find("span")["title"]
+                        impact = data.find('span')['title']
                     elif field == 'event':
                         event = data.text.strip()
                     elif field == 'actual':
@@ -99,7 +90,8 @@ def scrap():
                 with open('forex_factory_catalog.csv', mode='a', newline='') as file:
                     writer = csv.writer(file, delimiter=',')
                     writer.writerow(
-                        [str(date), currency, impact, event, actual, forecast, previous]
+                        [str(date.astimezone(timezone)),
+                         currency, impact, event, actual, forecast, previous]
                     )
             except TypeError:
                 with open('errors.csv', mode='a') as file:
@@ -119,14 +111,7 @@ def get_start_dt():
                 file.seek(-2, 2)
                 while remaining_size > 0:
                     if file.read(1) == b'\n':
-                        last_day_str = file.readline()[:25].decode()
-                        last_day = datetime(year=int(last_day_str[:4]),
-                                            month=int(last_day_str[5:7]),
-                                            day=int(last_day_str[8:10]),
-                                            hour=int(last_day_str[11:13]),
-                                            minute=int(last_day_str[14:16]),
-                                            tzinfo=gettz('UTC' + last_day_str[19:]))
-                        return last_day
+                        return datetime.fromisoformat(file.readline()[:25].decode())
                     file.seek(-2, 1)
                     remaining_size -= 1
                 file.seek(0)
@@ -189,6 +174,5 @@ def dt_is_today(date):
 
 
 if __name__ == '__main__':
-    # TODO Timezone changer
     set_logger()
-    scrap()
+    scrap(gettz('UTC-5'))  # HistData saves its Forex data with UTC-5
