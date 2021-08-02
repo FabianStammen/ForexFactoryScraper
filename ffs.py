@@ -1,3 +1,17 @@
+"""ForexFactoryScraper
+A more sophisticated web scraper that downloads forex calendar data from ForexFactory.
+
+The download is managed in packets of days, weeks or month to minimize network traffic.
+The chosen timezone is Eastern Standard Time (EST) time-zone WITH Day Light Savings adjustments.
+This is easily adjustable trough the usage of timezone aware datetime objects.
+The program starts at the first possible download date, jan 1 2007, and ends on the current day,
+up to the current time.
+Any later executions of the program checks for the datetime of the last entry and updates the list
+from that point in time.
+If an event has the time signature 'All Day' the time will be saves as the maximum value, 23:59:59,
+to ensure completion of the event at the point or scraping.
+The output file will be located in the working directory and be called forex_factory_catalog.csv
+"""
 import csv
 import logging
 import re
@@ -10,6 +24,8 @@ from dateutil.tz import gettz
 
 
 def set_logger():
+    """Initialization of a simple logger.
+    """
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s - %(levelname)s - %(message)s',
                         filename='logs_file',
@@ -21,6 +37,11 @@ def set_logger():
 
 
 def get_timezone():
+    """ Extracts the current default timezone from the website.
+
+    Returns:
+        timezone: the timezone
+    """
     site = requests.get('https://www.forexfactory.com/timezone.php')
     data = site.text
     soup = BeautifulSoup(data, 'lxml')
@@ -31,7 +52,12 @@ def get_timezone():
 
 
 def scrap(timezone):
-    # TODO Refactor to be not monolithic
+    """Scrap the event data from the web.
+
+        Args:
+            timezone : The output time zone.
+        """
+    # TODO Refactor to be not so monolithic
     ff_timezone = get_timezone()
     start_date = get_start_dt()
     fields = ['date', 'time', 'currency', 'impact', 'event', 'actual', 'forecast', 'previous']
@@ -103,6 +129,11 @@ def scrap(timezone):
 
 
 def get_start_dt():
+    """Get the start datetime for the scraping. Function incremental.
+
+    Returns:
+        datetime: The start datetime.
+    """
     if path.isfile('forex_factory_catalog.csv'):
         with open('forex_factory_catalog.csv', 'rb+') as file:
             file.seek(0, 2)
@@ -120,6 +151,16 @@ def get_start_dt():
 
 
 def get_next_dt(date, mode):
+    """Calculate the next datetime to scrape from. Based on efficiency either a day, week start or
+    month start.
+
+    Args:
+        date (datetime): The current datetime.
+        mode (str): The operating mode; can be 'day', 'week' or 'month'.
+
+    Returns:
+        datetime: The new datetime.
+    """
     if mode == 'month':
         (year, month) = divmod(date.month, 12)
         return date.replace(year=date.year + year, month=month + 1, day=1, hour=0, minute=0)
@@ -131,6 +172,14 @@ def get_next_dt(date, mode):
 
 
 def dt_to_url(date):
+    """Creates an url from a datetime
+
+    Args:
+        date (datetime): The datetime.
+
+    Returns:
+        str: The url.
+    """
     if dt_is_start_of_month(date) and dt_is_complete(date, mode='month'):
         return 'calendar.php?month={}'.format(dt_to_str(date, mode='month'))
     if dt_is_start_of_week(date) and dt_is_complete(date, mode='week'):
@@ -174,5 +223,9 @@ def dt_is_today(date):
 
 
 if __name__ == '__main__':
+    """Main function
+
+    Initializes the module.
+    """
     set_logger()
     scrap(gettz('UTC-5'))  # HistData saves its Forex data with UTC-5
