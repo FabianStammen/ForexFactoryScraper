@@ -8,5 +8,6 @@ Any later executions of the program checks for the datetime of the last entry an
 If an event has the time signature 'All Day' the time will be saves as the maximum value, 23:59:59, to ensure completion of the event at the point or scraping.\
 The output file will be located in the working directory and be called forex_factory_catalog.csv
 
-All requirements are within requirements.txt.\
+It is required to have Google Chrome installed.\
+All other requirements are within requirements.txt.\
 You can easily install them with 'pip install -r requirements.txt'.
