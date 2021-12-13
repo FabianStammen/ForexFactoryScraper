@@ -8,7 +8,7 @@ charset-normalizer==2.0.4
 cryptography==3.4.8
 h11==0.12.0
 idna==2.8
-lxml==4.6.3
+lxml==4.6.5
 outcome==1.1.0
 pycparser==2.20
 pyOpenSSL==20.0.1
